@@ -1,5 +1,10 @@
 import random as rnd
 
+WHITE_BAR = 'wb'
+WHITE_END = 25
+BLACK_BAR = 'bb'
+BLACK_END = 0
+
 board = []
 bar = []
 players = {-1:'black', 1:'white'}
@@ -48,7 +53,7 @@ def initialize_game(starting_player=None, starting_roll=None):
     curr_roll = starting_roll
   
 
-# returns list of valid moves for white
+# returns list of (from,to)-tuples of valid moves for white
 def white_valid_moves(dice_rolls):
   # TODO: handle situation in which an opponent has a 'hit' piece, force him to move it
   # TODO: handle pulling pieces off the board for winning
@@ -61,6 +66,18 @@ def white_valid_moves(dice_rolls):
   print(wht_locations)
 
   wht_possible_moves = []
+
+  # handle pieces on the bar
+  if bar[0] > 0:
+    for roll in dice_rolls:
+      eyes = list(roll.keys())[0]
+      if board[eyes - 1] >= -1:
+        wht_possible_moves.append((WHITE_BAR, eyes))
+    return list(set(wht_possible_moves))
+
+  # handle pieces leaving the board in end-game
+
+
   for loc in wht_locations:
     for roll in dice_rolls:
       eyes = list(roll.keys())[0]
@@ -74,7 +91,9 @@ def white_valid_moves(dice_rolls):
         if -1 <= board[loc+eyes-1]:
           wht_possible_moves.append((loc, loc+eyes))
 
-  print(list(set(wht_possible_moves)))
+  # print(list(set(wht_possible_moves)))
+  return list(set(wht_possible_moves))
+
 
 # mutates board state
 def move_piece(from_pos, to_pos):
@@ -89,6 +108,8 @@ def move_piece(from_pos, to_pos):
   # TODO:  - you can also move the same piece, first 5 then 2 or the other way around
   # TODO: handle 'hitting' an opponent
   # TODO: handle pulling pieces off the board for winning
+
+  # TODO: handle moving pieces from the bar (from_pos = 'wb'/'bb')
 
   pieces = board[from_pos-1]
   # if pieces == 0:
@@ -127,9 +148,9 @@ def print_game_state():
   for r in range(5):
     for i, k in enumerate(board[12:]):
       if i == 6:
-        # if the bar has white pieces on it, paint them now, else paint nothing
-        if bar[0] > 0 and r == 4:
-          str_board += "  +%i  |" % bar[0]
+        # if the bar has black pieces on it, paint them now, else paint nothing
+        if bar[1] > 0 and r == 4:
+          str_board += "  +%i  |" % bar[1]
         else:
           str_board += "      |"
       if r == 4 and (k > 5 or k < -5):
@@ -143,9 +164,9 @@ def print_game_state():
   for r in range(4,-1,-1):
     for i, k in reversed(list(enumerate(board[:12]))):
       if i == 5:
-        # if the bar has black pieces on it, paint them now, else paint nothing
-        if bar[1] > 0 and r == 4:
-          str_board += "  +%i  |" % bar[1]
+        # if the bar has white pieces on it, paint them now, else paint nothing
+        if bar[0] > 0 and r == 4:
+          str_board += "  +%i  |" % bar[0]
         else:
           str_board += "      |"
       if r == 0 and (k > 5 or k < -5):
@@ -179,7 +200,7 @@ def main():
   init_roll = roll_dice(fixed_roll=({2:1},{5:1}))
   initialize_game(starting_player='white', starting_roll=init_roll)
   print_game_state()
-  white_valid_moves(init_roll)
+  print(white_valid_moves(init_roll))
   read_eval_loop()
 
 
