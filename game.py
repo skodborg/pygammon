@@ -1,8 +1,7 @@
 import random as rnd
 
-WHITE_BAR = 'wb'
+BAR = 'bar'
 WHITE_END = 25
-BLACK_BAR = 'bb'
 BLACK_END = 0
 
 board = []
@@ -22,7 +21,7 @@ def roll_dice(fixed_roll=None):
   uses = 1 if eyes[0] != eyes[1] else 2
   return tuple([{eye: uses} for eye in eyes])
 
-def initialize_game(starting_player=None, starting_roll=None):
+def initialize_game(starting_player=None, init_roll=None, init_board=None):
   global board, player_in_turn, curr_roll, bar
   # 24 board positions, 4x6 triangles
   board = [0 for _ in range(24)]
@@ -49,9 +48,32 @@ def initialize_game(starting_player=None, starting_roll=None):
   player_in_turn = list(players)[rnd.randint(0,1)]
   if starting_player is not None:
     player_in_turn = 1 if starting_player is 'white' else -1
-  if starting_roll is not None:
-    curr_roll = starting_roll
+  if init_roll is not None:
+    curr_roll = init_roll
+  if init_board is not None:
+    board = init_board
   
+def initialize_testgame(starting_player=None, init_roll=None):
+  global board, bar
+  
+  initialize_game(starting_player=starting_player, init_roll=init_roll)
+
+  # 24 board positions, 4x6 triangles
+  board = [0 for _ in range(24)]
+  # white is positive, black is negative, int is no. of pieces at a given
+  # board position, indexed clockwise starting in lower left corner
+  board[1]  =  -2
+  board[4]  =  2
+  board[7]  =  0
+  board[11] =  0
+  board[12] =  0
+  board[16] =  0
+  board[19] =  5
+  board[22] =  5
+
+  # initializing the bar with zero of each piece in it (white is listed first)
+  bar = [0, 0]
+
 
 # returns list of (from,to)-tuples of valid moves for white
 def white_valid_moves(dice_rolls):
@@ -72,10 +94,17 @@ def white_valid_moves(dice_rolls):
     for roll in dice_rolls:
       eyes = list(roll.keys())[0]
       if board[eyes - 1] >= -1:
-        wht_possible_moves.append((WHITE_BAR, eyes))
+        wht_possible_moves.append((BAR, eyes))
     return list(set(wht_possible_moves))
 
-  # handle pieces leaving the board in end-game
+  # handle pieces leaving the board in end-game 
+  # (no piece positioned earlier than 19th edge, i.e. white end-zone)
+  if min(wht_locations) >= 19:
+    for roll in dice_rolls:
+      eyes = list(roll.keys())[0]
+      if board[24-eyes] > 0:
+        wht_possible_moves.append((25-eyes, WHITE_END))
+    return wht_possible_moves
 
 
   for loc in wht_locations:
@@ -198,7 +227,8 @@ def read_eval_loop():
 
 def main():
   init_roll = roll_dice(fixed_roll=({2:1},{5:1}))
-  initialize_game(starting_player='white', starting_roll=init_roll)
+  # initialize_game(starting_player='white', init_roll=init_roll)
+  initialize_testgame('white', init_roll)
   print_game_state()
   print(white_valid_moves(init_roll))
   read_eval_loop()
