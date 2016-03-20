@@ -62,16 +62,15 @@ def initialize_testgame(starting_player=None, init_roll=None):
   board = [0 for _ in range(24)]
   # white is positive, black is negative, int is no. of pieces at a given
   # board position, indexed clockwise starting in lower left corner
-  board[21] =  1
-  board[22] =  0
+  board[18] =   4
+  board[3] =  -1
 
   # initializing the bar with zero of each piece in it (white is listed first)
   bar = [0, 0]
 
 
-# returns list of (from,to)-tuples of valid moves for white
 def white_valid_moves(dice_rolls):
-
+  """ returns list of (from,to)-tuples of valid moves for white """
   # locations of all white pieces to select from
   wht_locations = []
   for pos, pieces in enumerate(board):
@@ -86,10 +85,12 @@ def white_valid_moves(dice_rolls):
       eyes = list(roll.keys())[0]
       if board[eyes - 1] >= -1:
         wht_possible_moves.append((BAR, eyes))
+
+    # remove duplicates and return as list of tuples
     return list(set(wht_possible_moves))
 
   # handle pieces leaving the board in end-game 
-  # (no piece positioned earlier than 19th edge, i.e. white end-zone)
+  # (no piece positioned earlier than 19th edge, i.e. white home-zone)
   if wht_locations and min(wht_locations) >= 19:
     for roll in dice_rolls:
       eyes = list(roll.keys())[0]
@@ -120,9 +121,67 @@ def white_valid_moves(dice_rolls):
         # or occupied by a single opponent (allow 'hitting' the opponent piece)
         if -1 <= board[loc+eyes-1]:
           wht_possible_moves.append((loc, loc+eyes))
-
+  
+  # remove duplicates and return as list of tuples
   return list(set(wht_possible_moves))
 
+def black_valid_moves(dice_rolls):
+  """ returns list of (from,to)-tuples of valid moves for black """
+  # locations of all white pieces to select from
+  blk_locations = []
+  for pos, pieces in enumerate(board):
+    if pieces < 0: blk_locations.append(pos+1)
+  print(blk_locations)
+
+  # result list, filled with tuples of (from,to)-positions of valid moves
+  blk_possible_moves = []
+
+  # handle pieces on the bar
+  if bar[1] > 0:
+    for roll in dice_rolls:
+      eyes = list(roll.keys())[0]
+      target = 25-eyes
+      if board[target-1] <= 1:
+        blk_possible_moves.append((BAR, target))
+
+    # remove duplicates and return as list of tuples
+    return list(set(blk_possible_moves))
+
+  # handle pieces leaving the board in end-game 
+  # (no piece positioned earlier than 6th edge, i.e. black home-zone)
+  if blk_locations and max(blk_locations) <= 6:
+    for roll in dice_rolls:
+      eyes = list(roll.keys())[0]
+      if board[eyes-1] < 0:
+        blk_possible_moves.append((eyes, BLACK_END))
+    if not blk_possible_moves:
+      # not possible to take any pieces off the board, even though they're
+      # all in home region. Take backmost piece and move as much as possible
+      # (capped at 0 if we have more eyes than we need to take piece off board)
+      for roll in dice_rolls:
+        eyes = list(roll.keys())[0]
+        target = max(max(blk_locations) - eyes, 0)
+        blk_possible_moves.append((max(blk_locations), target))
+
+    # remove duplicates and return as list of tuples
+    return list(set(blk_possible_moves))
+
+  # handle pieces when bar is empty and not all pieces are home yet
+  for loc in blk_locations:
+    for roll in dice_rolls:
+      eyes = list(roll.keys())[0]
+      uses = roll[eyes]
+
+      # if piece at 'loc' is moved 'eyes', and resulting loc is within board
+      if 0 < loc-eyes:
+
+        # if the target is unoccupied or only occupied by black pieces already
+        # or occupied by a single opponent (allow 'hitting' the opponent piece)
+        if 1 >= board[loc-eyes-1]:
+          blk_possible_moves.append((loc, loc-eyes))
+  
+  # remove duplicates and return as list of tuples
+  return list(set(blk_possible_moves))
 
 # mutates board state
 def move_piece(from_pos, to_pos):
@@ -226,11 +285,12 @@ def read_eval_loop():
       print_game_state()
 
 def main():
-  init_roll = roll_dice(fixed_roll=({3:1},{6:1}))
+  init_roll = roll_dice(fixed_roll=({3:1},{2:1}))
   initialize_game(starting_player='white', init_roll=init_roll)
   # initialize_testgame('white', init_roll)
   print_game_state()
-  print(white_valid_moves(init_roll))
+  # print(white_valid_moves(init_roll))
+  # print(black_valid_moves(init_roll))
   read_eval_loop()
 
 
