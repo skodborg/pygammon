@@ -10,6 +10,9 @@ players = {-1:'black', 1:'white'}
 player_in_turn = None
 curr_roll = None
 
+def sign_matches(x, y):
+  return x > 0 and y > 0 or x < 0 and y < 0
+
 # returns ({die1: uses}, {die2: uses})
 def roll_dice(fixed_roll=None):
   if fixed_roll is not None:
@@ -45,9 +48,10 @@ def initialize_game(starting_player=None, init_roll=None, init_board=None):
   while (list(curr_roll[0].keys())[0] is list(curr_roll[1].keys())[0]):
     curr_roll = roll_dice()
 
-  player_in_turn = list(players)[rnd.randint(0,1)]
+  player_in_turn = list(players.values())[rnd.randint(0,1)]
   if starting_player is not None:
-    player_in_turn = 1 if starting_player is 'white' else -1
+    # player_in_turn = 1 if starting_player is 'white' else -1
+    player_in_turn = starting_player
   if init_roll is not None:
     curr_roll = init_roll
   if init_board is not None:
@@ -58,19 +62,18 @@ def initialize_testgame(starting_player=None, init_roll=None):
   
   initialize_game(starting_player=starting_player, init_roll=init_roll)
 
-  # 24 board positions, 4x6 triangles
-  board = [0 for _ in range(24)]
-  # white is positive, black is negative, int is no. of pieces at a given
-  # board position, indexed clockwise starting in lower left corner
-  board[18] =   4
-  board[3] =  -1
+  board[3] =  1
 
-  # initializing the bar with zero of each piece in it (white is listed first)
-  bar = [0, 0]
+  bar = [1, 0]
 
 
 def white_valid_moves(dice_rolls):
   """ returns list of (from,to)-tuples of valid moves for white """
+  usable_rolls = []
+  for roll in dice_rolls:
+    if list(roll.values())[0] > 0:
+      usable_rolls.append(roll)
+
   # locations of all white pieces to select from
   wht_locations = []
   for pos, pieces in enumerate(board):
@@ -81,7 +84,7 @@ def white_valid_moves(dice_rolls):
 
   # handle pieces on the bar
   if bar[0] > 0:
-    for roll in dice_rolls:
+    for roll in usable_rolls:
       eyes = list(roll.keys())[0]
       if board[eyes - 1] >= -1:
         wht_possible_moves.append((BAR, eyes))
@@ -92,7 +95,7 @@ def white_valid_moves(dice_rolls):
   # handle pieces leaving the board in end-game 
   # (no piece positioned earlier than 19th edge, i.e. white home-zone)
   if wht_locations and min(wht_locations) >= 19:
-    for roll in dice_rolls:
+    for roll in usable_rolls:
       eyes = list(roll.keys())[0]
       if board[24-eyes] > 0:
         wht_possible_moves.append((25-eyes, WHITE_END))
@@ -100,7 +103,7 @@ def white_valid_moves(dice_rolls):
       # not possible to take any pieces off the board, even though they're
       # all in home region. Take backmost piece and move as much as possible
       # (capped at 25 if we have more eyes than we need to take piece off board)
-      for roll in dice_rolls:
+      for roll in usable_rolls:
         eyes = list(roll.keys())[0]
         target = min(min(wht_locations) + eyes, 25)
         wht_possible_moves.append((min(wht_locations), target))
@@ -110,7 +113,7 @@ def white_valid_moves(dice_rolls):
 
   # handle pieces when bar is empty and not all pieces are home yet
   for loc in wht_locations:
-    for roll in dice_rolls:
+    for roll in usable_rolls:
       eyes = list(roll.keys())[0]
       uses = roll[eyes]
 
@@ -127,18 +130,22 @@ def white_valid_moves(dice_rolls):
 
 def black_valid_moves(dice_rolls):
   """ returns list of (from,to)-tuples of valid moves for black """
+  usable_rolls = []
+  for roll in dice_rolls:
+    if list(roll.values())[0] > 0:
+      usable_rolls.append(roll)
+
   # locations of all white pieces to select from
   blk_locations = []
   for pos, pieces in enumerate(board):
     if pieces < 0: blk_locations.append(pos+1)
-  print(blk_locations)
 
   # result list, filled with tuples of (from,to)-positions of valid moves
   blk_possible_moves = []
 
   # handle pieces on the bar
   if bar[1] > 0:
-    for roll in dice_rolls:
+    for roll in usable_rolls:
       eyes = list(roll.keys())[0]
       target = 25-eyes
       if board[target-1] <= 1:
@@ -150,7 +157,7 @@ def black_valid_moves(dice_rolls):
   # handle pieces leaving the board in end-game 
   # (no piece positioned earlier than 6th edge, i.e. black home-zone)
   if blk_locations and max(blk_locations) <= 6:
-    for roll in dice_rolls:
+    for roll in usable_rolls:
       eyes = list(roll.keys())[0]
       if board[eyes-1] < 0:
         blk_possible_moves.append((eyes, BLACK_END))
@@ -158,7 +165,7 @@ def black_valid_moves(dice_rolls):
       # not possible to take any pieces off the board, even though they're
       # all in home region. Take backmost piece and move as much as possible
       # (capped at 0 if we have more eyes than we need to take piece off board)
-      for roll in dice_rolls:
+      for roll in usable_rolls:
         eyes = list(roll.keys())[0]
         target = max(max(blk_locations) - eyes, 0)
         blk_possible_moves.append((max(blk_locations), target))
@@ -168,7 +175,7 @@ def black_valid_moves(dice_rolls):
 
   # handle pieces when bar is empty and not all pieces are home yet
   for loc in blk_locations:
-    for roll in dice_rolls:
+    for roll in usable_rolls:
       eyes = list(roll.keys())[0]
       uses = roll[eyes]
 
@@ -183,48 +190,109 @@ def black_valid_moves(dice_rolls):
   # remove duplicates and return as list of tuples
   return list(set(blk_possible_moves))
 
-# mutates board state
-def move_piece(from_pos, to_pos):
-  global player_in_turn, curr_roll
-  # check if move is valid
-  # - if so, perform it, deduct from dice usages
-  #   - if no dices left for use, swap player in turn
-  # - check if a winner is found
-
-  # TODO: handle double rolls
-  # TODO: handle 'spending' rolls (i.e. when hitting 2-5, you can move one piece 2, another 5)
-  # TODO:  - you can also move the same piece, first 5 then 2 or the other way around
-  # TODO: handle 'hitting' an opponent
-  # TODO: handle pulling pieces off the board for winning
-
-  # TODO: handle moving pieces from the bar (from_pos = 'wb'/'bb')
-
-  pieces = board[from_pos-1]
-  # if pieces == 0:
-  #   report_error("There are no pieces to move at position %i" % from_pos)
-  #   return False
-  # else:
-  #   if from_pos == to_pos:
-  #     report_error("Cannot move piece to the same position")
-  #     return False
-
-  sign = -1 if pieces < 0 else 1
-  #   if player_in_turn is not players[sign]:
-  #     report_error("Attempted to move opponents' pieces")
-  #     return False
-  #   if player_in_turn == players[1] and from_pos > to_pos or \
-  #      player_in_turn == players[-1] and from_pos < to_pos:
-  #     report_error("Cannot move %s piece backwards" % player_in_turn)
-  #     return False
-
-  # TODO: if no more moves (dice usages all 0) swap player and roll again
-
-  board[from_pos-1] -= sign
-  board[to_pos-1] += sign
-
-  player_in_turn = -sign
+def end_current_turn():
+  global player_in_turn, curr_roll, players
+  sign = 1 if player_in_turn == 'white' else -1
+  player_in_turn = players[-sign]
   curr_roll = roll_dice()
 
+# mutates board state
+def move_piece(from_pos, to_pos):
+  global player_in_turn, curr_roll, board, bar
+
+  # TODO: handle pulling pieces off the board for winning
+  # TODO: handle proper skipping of turns when no move is available
+  # TODO: handle finding a winner
+  # TODO: refactor?
+
+  try:
+    from_pos = int(from_pos)
+  except ValueError:
+    pass
+
+  try:
+    to_pos = int(to_pos)
+  except ValueError:
+    pass
+
+  if from_pos == 'bar':
+    pieces = bar[0] if player_in_turn is 'white' else -bar[1]
+  else:
+    pieces = board[from_pos-1]
+  
+  if pieces == 0:
+    report_error("There are no pieces to move at position " + str(from_pos))
+    return False
+  if from_pos == to_pos:
+    report_error("Cannot move piece to the same position")
+    return False
+
+  sign = -1 if pieces < 0 else 1
+  if player_in_turn is not players[sign]:
+    report_error("Attempted to move opponents' pieces")
+    return False
+
+  # there is a piece at the from_pos, it belongs to the player_in_turn, and
+  # the move is not trivial; check if valid
+  move = (from_pos, to_pos)
+  valid_moves = []
+  if player_in_turn == 'white':
+    valid_moves = white_valid_moves(curr_roll)
+  else:
+    valid_moves = black_valid_moves(curr_roll)
+
+  if move not in valid_moves:
+    report_error("Move is not valid: " + str(move))
+    return False
+
+  # TODO: if no more moves (dice usages all 0) swap player and roll again
+  curr_roll_eyes = [list(roll.keys())[0] for roll in curr_roll]
+  # curr_roll_uses = [list(roll.values())[0] for roll in curr_roll]
+
+  if from_pos == 'bar':
+    eyes_used = to_pos if to_pos < 10 else 25 - to_pos
+  else:
+    eyes_used = abs(to_pos - from_pos)
+
+  found_dice = False
+  for i, eyes in enumerate(curr_roll_eyes):
+    if eyes == eyes_used:
+      if not curr_roll[i][eyes] == 0:
+        # found a dice; decrement its uses
+        curr_roll[i][eyes] -= 1
+        found_dice = True
+        break
+
+  if not found_dice:
+    # found no unused dice left to enable the move; report error and return
+    report_error("Trying to reuse die roll %i already spent" % eyes)
+    return False
+
+  # move is valid, perform it
+  if from_pos == 'bar':
+    if sign > 0:
+      bar[0] -= 1
+    else:
+      bar[1] -= 1
+  else:
+    board[from_pos-1] -= sign
+  
+  if board[to_pos-1] is not 0 and not sign_matches(board[to_pos-1], sign):
+    # an opponent's piece has been hit; handle placement on the bar
+    if board[to_pos-1] > 0 and sign > 0 or board[to_pos-1] < 0 and sign < 0:
+      # moving piece from bar to already friendly occupied position
+      board[to_pos-1] += sign
+    else:
+      # moving piece from bar to position and hitting an opponent here
+      board[to_pos-1] += sign * 2
+    if sign > 0:
+      bar[1] += 1  # white is in turn; black has been hit
+    else:
+      bar[0] += 1  # black is in turn; white has been hit
+  else:
+    board[to_pos-1] += sign
+
+  # end_current_turn()
   return True
 
 def report_error(msg):
@@ -232,7 +300,7 @@ def report_error(msg):
   
 def print_game_state():
   # black: x  white: o
-  str_board = " 13  14  15  16  17  18         19  20  21  22  23  24\n|"
+  str_board = "\n\n 13  14  15  16  17  18         19  20  21  22  23  24\n|"
   for r in range(5):
     for i, k in enumerate(board[12:]):
       if i == 6:
@@ -266,8 +334,12 @@ def print_game_state():
     str_board += "\n|" if r > 0 else "\n"
   str_board += " 12  11  10   9   8   7          6   5   4   3   2   1  "
   print(str_board)
-  print("\nPlayer currently in turn: %s" % players[player_in_turn])
+  print("\nPlayer currently in turn: %s" % player_in_turn)
   print("Remaining roll: " + str(curr_roll))
+  if player_in_turn == 'white':
+    print(white_valid_moves(curr_roll))
+  else:
+    print(black_valid_moves(curr_roll))
 
 def read_eval_loop():
   global curr_roll
@@ -279,18 +351,23 @@ def read_eval_loop():
     elif cmd == "r":
       curr_roll = roll_dice()
       print(curr_roll)
+    elif cmd == 'skip':
+      end_current_turn()
+      print_game_state()
     else:
       from_pos, to_pos = cmd.split(',')
-      move_piece(int(from_pos), int(to_pos))
+      move_piece(from_pos, to_pos)
+
+      curr_roll_uses = [list(roll.values())[0] for roll in curr_roll]
+      if max(curr_roll_uses) == 0:
+        end_current_turn()
+
       print_game_state()
 
+
 def main():
-  init_roll = roll_dice(fixed_roll=({3:1},{2:1}))
-  initialize_game(starting_player='white', init_roll=init_roll)
-  # initialize_testgame('white', init_roll)
+  initialize_game()
   print_game_state()
-  # print(white_valid_moves(init_roll))
-  # print(black_valid_moves(init_roll))
   read_eval_loop()
 
 
