@@ -9,6 +9,7 @@ bar = []
 players = {-1:'black', 1:'white'}
 player_in_turn = None
 curr_roll = None
+winner = None
 
 def sign_matches(x, y):
   return x > 0 and y > 0 or x < 0 and y < 0
@@ -59,19 +60,20 @@ def initialize_game(starting_player=None, init_roll=None, init_board=None):
     board = init_board
   
 def initialize_testgame():
-  global board, bar, curr_roll, player_in_turn
+  global board, bar, curr_roll, player_in_turn, winner
   
   initialize_game()
 
   board = [0 for _ in range(26)]
-  board[3] =  -5
-  board[2] =  -5
-  board[1] =   2
+  board[3] =  -2
+  board[2] =  -2
+  board[23] =   2
   player_in_turn = 'black'
   curr_roll = ({6:1}, {5:1})
   
   bar = [0, 0]
 
+  # winner = 'white'
 
 def white_valid_moves(dice_rolls):
   """ returns list of (from,to)-tuples of valid moves for white """
@@ -208,9 +210,6 @@ def end_current_turn():
 def move_piece(from_pos, to_pos):
   global player_in_turn, curr_roll, board, bar
 
-  # TODO: handle pulling pieces off the board for winning
-  # TODO: handle proper skipping of turns when no move is available
-  # TODO: handle finding a winner
   # TODO: refactor?
 
   try:
@@ -317,6 +316,7 @@ def report_error(msg):
   print('ERROR: ' + msg)
   
 def print_game_state():
+  global winner
   # black: x  white: o
   str_board = "\n\n 13  14  15  16  17  18         19  20  21  22  23  24\n|"
   for r in range(5):
@@ -352,12 +352,36 @@ def print_game_state():
     str_board += "\n|" if r > 0 else "\n"
   str_board += " 12  11  10   9   8   7          6   5   4   3   2   1  "
   print(str_board)
+  if winner:
+    print("\n%s wins!" % winner.capitalize())
+    return
   print("\nPlayer currently in turn: %s" % player_in_turn)
   print("Remaining roll: " + str(curr_roll))
   if player_in_turn == 'white':
     print(white_valid_moves(curr_roll))
   else:
     print(black_valid_moves(curr_roll))
+
+def find_winner():
+  """ sets global variable 'winner' if a player has won, i.e. has successfully
+      taken all his pieces off of the board """
+  global winner, board
+
+  black_has_won = True
+  for pieces in board[1:24]:
+    if pieces < 0: 
+      black_has_won = False
+      break
+  if black_has_won:
+    winner = 'black'
+
+  white_has_won = True
+  for pieces in board[1:24]:
+    if pieces > 0: 
+      white_has_won = False
+      break
+  if white_has_won:
+    winner = 'white'  
 
 def read_eval_loop():
   global curr_roll
@@ -387,16 +411,94 @@ def read_eval_loop():
         if max(curr_roll_uses) == 0:
           end_current_turn()
 
+        find_winner()
+
         print_game_state()
       except ValueError:
         report_error("Unknown command: %s" % cmd)
 
+def nn_game_representation():
+    ''' returns a list with 198 elements. First 96 elements corresponds to
+        white players pieces on the board, 4 elements to represent each of 
+        the 24 positions on the board. The following 3 elements are the
+        number of pieces white has on the bar, has removed from the board,
+        and lastly a value indicating if it is white players turn.
+        These values are followed by same values, but for black player.'''
+    global board, bar
+
+    # values: n/2 for n pieces on the bar of each color
+    bar_neurons = [0.0, 0.0]
+    bar_neurons[0] = bar[0] / 2
+    bar_neurons[1] = bar[1] / 2
+
+    # values: n/15 for n pieces taken off the board of each color
+    p_removed_neurons = [0, 0]
+    p_removed_neurons[0] = board[25] / 15 # white
+    p_removed_neurons[1] = board[0] / 15  # black
+
+    # values: 0/1 whether white/blue is in turn or not
+    pl_turn_neurons = [1.0, 0.0] if player_in_turn == 'white' else [0.0, 1.0]
+
+    # 24 positions, 4 neurons to represent a position, 2 colors = 192 neurons
+    # iterating the 192 neurons in the neural net used to represent the
+    # black and white pieces on each of the 24 edges on the board
+    neurons_per_pos = 4
+    white_board_neurons = [0.0] * 24 * 4
+    black_board_neurons = [0.0] * 24 * 4
+    for pos in range(1, len(board) - 1):
+        this_pos = board[pos]
+        if this_pos == 0:
+            # no pieces to update board representation with at this_pos
+            continue
+        elif this_pos > 0:
+            # white
+            neuron_pos = (pos - 1) * neurons_per_pos
+            if this_pos > 0:
+                white_board_neurons[neuron_pos] = 1.0
+            if this_pos > 1:
+                white_board_neurons[neuron_pos + 1] = 1.0
+            if this_pos > 2:
+                white_board_neurons[neuron_pos + 2] = 1.0
+            if this_pos > 3:
+                neuron_val = (this_pos - 3) / 2
+                white_board_neurons[neuron_pos + 3] = neuron_val
+        else:
+            # black
+            neuron_pos = (pos - 1) * neurons_per_pos
+            if this_pos < 0:
+                black_board_neurons[neuron_pos] = 1.0
+            if this_pos < -1:
+                black_board_neurons[neuron_pos + 1] = 1.0
+            if this_pos < -2:
+                black_board_neurons[neuron_pos + 2] = 1.0
+            if this_pos < -3:
+                neuron_val = (abs(this_pos) - 3) / 2
+                black_board_neurons[neuron_pos + 3] = neuron_val
+    board_neurons = white_board_neurons + black_board_neurons
+    
+    return board_neurons + bar_neurons + p_removed_neurons + pl_turn_neurons
+    
+def decide_move():
+    def eval_single_move(board, move):
+        pass
+    # needs a copy of board, bar, winner, player_in_turn and curr_roll
+
+    # should then, for each of the ~20 possible moves with the roll
+    # throw the resulting afterstate through the neural network to 
+    # estimate the value of a given board. Has to do this for ALL combinations
+    # of rolls I guess?
+
+    # should return the moves corresponding to the most likely to win
+    pass
+
+
 
 def main():
-  # initialize_game()
-  initialize_testgame()
+  initialize_game()
+  # initialize_testgame()
   print_game_state()
-  read_eval_loop()
+  # read_eval_loop()
+  nn_game_representation()
 
 
 if __name__ == '__main__':
