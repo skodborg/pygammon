@@ -1,4 +1,5 @@
 import random as rnd
+import copy
 
 BAR = 'bar'
 WHITE_END = 25
@@ -10,6 +11,8 @@ players = {-1:'black', 1:'white'}
 player_in_turn = None
 curr_roll = None
 winner = None
+
+global_gamestate = (board, bar, player_in_turn, curr_roll)
 
 def sign_matches(x, y):
   return x > 0 and y > 0 or x < 0 and y < 0
@@ -26,7 +29,7 @@ def roll_dice(fixed_roll=None):
   return tuple([{eye: uses} for eye in eyes])
 
 def initialize_game(starting_player=None, init_roll=None, init_board=None):
-  global board, player_in_turn, curr_roll, bar
+  global board, player_in_turn, curr_roll, bar, global_gamestate
   # 24+2 board positions, 4x6 triangles and two positions where pieces are
   # considered taken off the board. These are 0 for black, and 25 for white
   board = [0 for _ in range(26)]
@@ -58,9 +61,12 @@ def initialize_game(starting_player=None, init_roll=None, init_board=None):
     curr_roll = init_roll
   if init_board is not None:
     board = init_board
+
+  global_gamestate = (board, bar, player_in_turn, curr_roll)
+
   
 def initialize_testgame():
-  global board, bar, curr_roll, player_in_turn, winner
+  global board, bar, curr_roll, player_in_turn, winner, global_gamestate
   
   initialize_game()
 
@@ -72,13 +78,16 @@ def initialize_testgame():
   curr_roll = ({6:1}, {5:1})
   
   bar = [0, 0]
-
   # winner = 'white'
 
-def white_valid_moves(dice_rolls):
+  global_gamestate = (board, bar, player_in_turn, curr_roll)
+
+def white_valid_moves(gamestate):
+  board, bar, player_in_turn, curr_roll = gamestate
+
   """ returns list of (from,to)-tuples of valid moves for white """
   usable_rolls = []
-  for roll in dice_rolls:
+  for roll in curr_roll:
     if list(roll.values())[0] > 0:
       usable_rolls.append(roll)
 
@@ -137,10 +146,12 @@ def white_valid_moves(dice_rolls):
   # remove duplicates and return as list of tuples
   return list(set(wht_possible_moves))
 
-def black_valid_moves(dice_rolls):
+def black_valid_moves(gamestate):
+  board, bar, player_in_turn, curr_roll = gamestate
+
   """ returns list of (from,to)-tuples of valid moves for black """
   usable_rolls = []
-  for roll in dice_rolls:
+  for roll in curr_roll:
     if list(roll.values())[0] > 0:
       usable_rolls.append(roll)
 
@@ -207,8 +218,13 @@ def end_current_turn():
   curr_roll = roll_dice()
 
 # mutates board state
-def move_piece(from_pos, to_pos):
-  global player_in_turn, curr_roll, board, bar
+def move_piece(from_pos, to_pos, gamestate=global_gamestate):
+
+  board, bar, player_in_turn, curr_roll = gamestate
+  # TODO: FIX
+  # if not (player_in_turn and curr_roll and board and bar):
+    # global player_in_turn, curr_roll, board, bar
+  # global player_in_turn, curr_roll, board, bar
 
   # TODO: refactor?
 
@@ -229,28 +245,28 @@ def move_piece(from_pos, to_pos):
   
   if pieces == 0:
     report_error("There are no pieces to move at position " + str(from_pos))
-    return False
+    return None
   if from_pos == to_pos:
     report_error("Cannot move piece to the same position")
-    return False
+    return None
 
   sign = -1 if pieces < 0 else 1
   if player_in_turn is not players[sign]:
     report_error("Attempted to move opponents' pieces")
-    return False
+    return None
 
   # there is a piece at the from_pos, it belongs to the player_in_turn, and
   # the move is not trivial; check if valid
   move = (from_pos, to_pos)
   valid_moves = []
   if player_in_turn == 'white':
-    valid_moves = white_valid_moves(curr_roll)
+    valid_moves = white_valid_moves(gamestate)
   else:
-    valid_moves = black_valid_moves(curr_roll)
+    valid_moves = black_valid_moves(gamestate)
 
   if move not in valid_moves:
     report_error("Move is not valid: " + str(move))
-    return False
+    return None
 
   # TODO: if no more moves (dice usages all 0) swap player and roll again
   curr_roll_eyes = [list(roll.keys())[0] for roll in curr_roll]
@@ -283,7 +299,7 @@ def move_piece(from_pos, to_pos):
   if not found_dice:
     # found no unused dice left to enable the move; report error and return
     report_error("Trying to reuse die roll %i already spent" % eyes)
-    return False
+    return None
 
   # move is valid, perform it
   if from_pos == 'bar':
@@ -310,12 +326,14 @@ def move_piece(from_pos, to_pos):
     board[to_pos] += sign
 
   # end_current_turn()
-  return True
+  resulting_gamestate = (board, bar, player_in_turn, curr_roll)
+  return resulting_gamestate
 
 def report_error(msg):
   print('ERROR: ' + msg)
   
-def print_game_state():
+def print_game_state(gamestate):
+  board, bar, player_in_turn, curr_roll = gamestate
   global winner
   # black: x  white: o
   str_board = "\n\n 13  14  15  16  17  18         19  20  21  22  23  24\n|"
@@ -358,9 +376,9 @@ def print_game_state():
   print("\nPlayer currently in turn: %s" % player_in_turn)
   print("Remaining roll: " + str(curr_roll))
   if player_in_turn == 'white':
-    print(white_valid_moves(curr_roll))
+    print(white_valid_moves(gamestate))
   else:
-    print(black_valid_moves(curr_roll))
+    print(black_valid_moves(gamestate))
 
 def find_winner():
   """ sets global variable 'winner' if a player has won, i.e. has successfully
@@ -405,7 +423,7 @@ def read_eval_loop():
         if not to_pos in ['end']:
           int(to_pos)
 
-        move_piece(from_pos, to_pos)
+        move_piece(from_pos, to_pos, global_gamestate)
 
         curr_roll_uses = [list(roll.values())[0] for roll in curr_roll]
         if max(curr_roll_uses) == 0:
@@ -479,7 +497,13 @@ def nn_game_representation():
     return board_neurons + bar_neurons + p_removed_neurons + pl_turn_neurons
     
 def decide_move():
-    def eval_single_move(board, move):
+    def eval_single_move(gamestate, move):
+        # perform move
+        from_pos, to_pos = move
+        post_move_gamestate = move_piece(from_pos, to_pos, gamestate)
+        print_game_state(post_move_gamestate)
+        # eval board afterwards (nn)
+        # return evaluation
         pass
     # needs a copy of board, bar, winner, player_in_turn and curr_roll
 
@@ -487,7 +511,24 @@ def decide_move():
     # throw the resulting afterstate through the neural network to 
     # estimate the value of a given board. Has to do this for ALL combinations
     # of rolls I guess?
+    valid_moves = []
+    if player_in_turn == 'white':
+      valid_moves = white_valid_moves(global_gamestate)
+    else:
+      valid_moves = black_valid_moves(global_gamestate)
+    
+    for move in valid_moves:
+      gamestate_copy = copy.deepcopy(global_gamestate)
+      from_pos = move[0]
+      to_pos = move[1]
+      print('moving from %i to %i' % (from_pos, to_pos))
+      returned_gamestate = move_piece(from_pos, to_pos, gamestate_copy)
+      print_game_state(returned_gamestate)
 
+      # evaluate returned_gamestate
+
+    print('\n\n ORIGINAL GAMESTATE')
+    print_game_state(global_gamestate)
     # should return the moves corresponding to the most likely to win
     pass
 
@@ -496,9 +537,11 @@ def decide_move():
 def main():
   initialize_game()
   # initialize_testgame()
-  print_game_state()
+  # print_game_state(global_gamestate)
   # read_eval_loop()
-  nn_game_representation()
+  # print(nn_game_representation())
+
+  decide_move()
 
 
 if __name__ == '__main__':
