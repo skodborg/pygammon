@@ -5,14 +5,15 @@ BAR = 'bar'
 WHITE_END = 25
 BLACK_END = 0
 
-board = []
-bar = []
+# board = []
+# bar = []
 players = {-1:'black', 1:'white'}
-player_in_turn = None
-curr_roll = None
+# player_in_turn = None
+# curr_roll = None
 winner = None
 
-global_gamestate = (board, bar, player_in_turn, curr_roll)
+# global_gamestate = (board, bar, player_in_turn, curr_roll)
+global_gamestate = None
 
 def sign_matches(x, y):
   return x > 0 and y > 0 or x < 0 and y < 0
@@ -29,7 +30,8 @@ def roll_dice(fixed_roll=None):
   return tuple([{eye: uses} for eye in eyes])
 
 def initialize_game(starting_player=None, init_roll=None, init_board=None):
-  global board, player_in_turn, curr_roll, bar, global_gamestate
+  global global_gamestate
+  # global board, player_in_turn, curr_roll, bar, global_gamestate
   # 24+2 board positions, 4x6 triangles and two positions where pieces are
   # considered taken off the board. These are 0 for black, and 25 for white
   board = [0 for _ in range(26)]
@@ -66,21 +68,28 @@ def initialize_game(starting_player=None, init_roll=None, init_board=None):
 
   
 def initialize_testgame():
-  global board, bar, curr_roll, player_in_turn, winner, global_gamestate
+  # global board, bar, curr_roll, player_in_turn, winner, global_gamestate
+  global global_gamestate
   
   initialize_game()
 
   board = [0 for _ in range(26)]
-  board[3] =  -2
-  board[2] =  -2
-  board[23] =   2
-  player_in_turn = 'black'
-  curr_roll = ({6:1}, {5:1})
+  board[1]  =  2
+  board[6]  = -5
+  board[8]  = -3
+  board[12] =  5
+  board[13] = -5
+  board[17] =  3
+  board[19] =  5
+  board[24] = -2
+  player_in_turn = 'white'
+  curr_roll = ({2:1}, {6:1})
   
   bar = [0, 0]
   # winner = 'white'
 
   global_gamestate = (board, bar, player_in_turn, curr_roll)
+  print(global_gamestate)
 
 def white_valid_moves(gamestate):
   board, bar, player_in_turn, curr_roll = gamestate
@@ -136,7 +145,7 @@ def white_valid_moves(gamestate):
 
       # if piece at 'loc' is moved 'eyes', and resulting loc is within board
       last_board_pos = 24
-      if last_board_pos >= loc+eyes-1:
+      if last_board_pos >= loc+eyes:
 
         # if the target is unoccupied or only occupied by white pieces already
         # or occupied by a single opponent (allow 'hitting' the opponent piece)
@@ -205,17 +214,21 @@ def black_valid_moves(gamestate):
 
         # if the target is unoccupied or only occupied by black pieces already
         # or occupied by a single opponent (allow 'hitting' the opponent piece)
-        if 1 >= board[loc-eyes]:
+        if 1 >= board[loc-eyes]: #and loc - eyes > BLACK_END:
           blk_possible_moves.append((loc, loc-eyes))
   
   # remove duplicates and return as list of tuples
   return list(set(blk_possible_moves))
 
-def end_current_turn():
-  global player_in_turn, curr_roll, players
+def end_current_turn(gamestate):
+  # global player_in_turn, curr_roll, players
+  global players
+  board, bar, player_in_turn, curr_roll = gamestate
   sign = 1 if player_in_turn == 'white' else -1
   player_in_turn = players[-sign]
   curr_roll = roll_dice()
+  gamestate = board, bar, player_in_turn, curr_roll
+  return gamestate
 
 # mutates board state
 def move_piece(from_pos, to_pos, gamestate=global_gamestate):
@@ -325,6 +338,15 @@ def move_piece(from_pos, to_pos, gamestate=global_gamestate):
   else:
     board[to_pos] += sign
 
+  curr_roll_uses = [list(roll.values())[0] for roll in curr_roll]
+    # print(curr_roll_uses)
+  if max(curr_roll_uses) == 0:
+    gamestate = end_current_turn((board, bar, player_in_turn, curr_roll))
+    board, bar, player_in_turn, curr_roll = gamestate
+
+  find_winner(gamestate)
+
+
   # end_current_turn()
   resulting_gamestate = (board, bar, player_in_turn, curr_roll)
   return resulting_gamestate
@@ -380,13 +402,14 @@ def print_game_state(gamestate):
   else:
     print(black_valid_moves(gamestate))
 
-def find_winner():
+def find_winner(gamestate):
   """ sets global variable 'winner' if a player has won, i.e. has successfully
       taken all his pieces off of the board """
-  global winner, board
+  global winner
+  board = gamestate[0]
 
   black_has_won = True
-  for pieces in board[1:24]:
+  for pieces in board[1:24+1]:
     if pieces < 0: 
       black_has_won = False
       break
@@ -394,26 +417,29 @@ def find_winner():
     winner = 'black'
 
   white_has_won = True
-  for pieces in board[1:24]:
+  for pieces in board[1:24+1]:
     if pieces > 0: 
       white_has_won = False
       break
   if white_has_won:
     winner = 'white'  
 
-def read_eval_loop():
-  global curr_roll
-
+def read_eval_loop(gamestate):
+  # global curr_roll
+  _, _, _, curr_roll = gamestate
+  # TODO: SOMETHING'S FUCKED UP WITH THE GAMESTATE,
+  #       END_CURRENT_TURN UPDATES AND RETURNS A DIFFERENT OBJECT
   while True:
     cmd = input()
     if cmd == "q":
       break
     elif cmd == "r":
       curr_roll = roll_dice()
+      gamestate[3] = curr_roll
       print(curr_roll)
     elif cmd == 'skip':
-      end_current_turn()
-      print_game_state()
+      gamestate = end_current_turn(gamestate)
+      print_game_state(gamestate)
     else:
       try:
         from_pos, to_pos = cmd.split(',')
@@ -423,26 +449,24 @@ def read_eval_loop():
         if not to_pos in ['end']:
           int(to_pos)
 
-        move_piece(from_pos, to_pos, global_gamestate)
+        print('before: %s' % str(curr_roll))
+        gamestate = move_piece(from_pos, to_pos, gamestate)
+        print('after: %s' % str(curr_roll))
+        # global_gamestate = gamestate
 
-        curr_roll_uses = [list(roll.values())[0] for roll in curr_roll]
-        if max(curr_roll_uses) == 0:
-          end_current_turn()
-
-        find_winner()
-
-        print_game_state()
+        
+        print_game_state(gamestate)
       except ValueError:
         report_error("Unknown command: %s" % cmd)
 
-def nn_game_representation():
+def nn_game_representation(gamestate):
     ''' returns a list with 198 elements. First 96 elements corresponds to
         white players pieces on the board, 4 elements to represent each of 
         the 24 positions on the board. The following 3 elements are the
         number of pieces white has on the bar, has removed from the board,
         and lastly a value indicating if it is white players turn.
         These values are followed by same values, but for black player.'''
-    global board, bar
+    board, bar, player_in_turn, curr_roll = gamestate
 
     # values: n/2 for n pieces on the bar of each color
     bar_neurons = [0.0, 0.0]
@@ -496,7 +520,8 @@ def nn_game_representation():
     
     return board_neurons + bar_neurons + p_removed_neurons + pl_turn_neurons
     
-def decide_move():
+def decide_move(gamestate):
+    board, bar, player_in_turn, curr_roll = gamestate
     def eval_single_move(gamestate, move):
         # perform move
         from_pos, to_pos = move
@@ -505,43 +530,82 @@ def decide_move():
         # eval board afterwards (nn)
         # return evaluation
         pass
-    # needs a copy of board, bar, winner, player_in_turn and curr_roll
 
     # should then, for each of the ~20 possible moves with the roll
     # throw the resulting afterstate through the neural network to 
     # estimate the value of a given board. Has to do this for ALL combinations
     # of rolls I guess?
-    valid_moves = []
-    if player_in_turn == 'white':
-      valid_moves = white_valid_moves(global_gamestate)
-    else:
-      valid_moves = black_valid_moves(global_gamestate)
-    
-    for move in valid_moves:
-      gamestate_copy = copy.deepcopy(global_gamestate)
-      from_pos = move[0]
-      to_pos = move[1]
-      print('moving from %i to %i' % (from_pos, to_pos))
-      returned_gamestate = move_piece(from_pos, to_pos, gamestate_copy)
-      print_game_state(returned_gamestate)
+
+
+    def play_out_game(gamestate):
+      global winner
+      curr_gamestate = gamestate
+      while not winner:
+        valid_moves = []
+        if curr_gamestate[2] == 'white':
+          valid_moves = white_valid_moves(curr_gamestate)
+        else:
+          valid_moves = black_valid_moves(curr_gamestate)
+
+        if not valid_moves:
+          print('NO VALID MOVES')
+          curr_gamestate = end_current_turn(curr_gamestate)
+          continue
+
+        to_positions = [x[1] for x in valid_moves]
+        from_positions = [x[0] for x in valid_moves]
+        if 25 in to_positions:
+          ok = True
+          for from_pos in from_positions:
+            if from_pos < 19:
+              ok = False
+          assert ok
+        if 0 in to_positions:
+          ok = True
+          for from_pos in from_positions:
+            if from_pos > 6:
+              ok = False
+          assert ok
+
+        print('valid moves: %s' % str(valid_moves))
+      # perform random move
+        random_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
+        print('moving from %s to %s' % (str(random_move[0]), str(random_move[1])))
+        curr_gamestate = move_piece(random_move[0], random_move[1], curr_gamestate)
+        print_game_state(curr_gamestate)
+
+      print('a winner has been found in the following gamestate')
+      print_game_state(curr_gamestate)
+
+
+        # for move in valid_moves:
+        #   gamestate_copy = copy.deepcopy(global_gamestate)
+        #   from_pos = move[0]
+        #   to_pos = move[1]
+
+        #   curr_gamestate = move_piece(from_pos, to_pos, gamestate_copy)
+          # print_game_state(returned_gamestate)
+          # print(nn_game_representation(returned_gamestate))
 
       # evaluate returned_gamestate
 
-    print('\n\n ORIGINAL GAMESTATE')
-    print_game_state(global_gamestate)
+    # print('\n\n ORIGINAL GAMESTATE')
+    # print_game_state(global_gamestate)
     # should return the moves corresponding to the most likely to win
-    pass
+    
+    play_out_game(global_gamestate)
 
 
 
 def main():
-  initialize_game()
-  # initialize_testgame()
-  # print_game_state(global_gamestate)
-  # read_eval_loop()
-  # print(nn_game_representation())
+  # initialize_game()
+  initialize_testgame()
 
-  decide_move()
+  print_game_state(global_gamestate)
+  # read_eval_loop(global_gamestate)
+  
+
+  decide_move(global_gamestate)
 
 
 if __name__ == '__main__':
