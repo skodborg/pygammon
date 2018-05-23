@@ -4,6 +4,12 @@ import game
 
 class nnActor:
     def __init__(self, logspath='1'):
+        tf.reset_default_graph()
+
+        self.sess = tf.Session()
+
+
+
         self.explore = 0.1
         self.learning_rate = 0.001
 
@@ -18,6 +24,7 @@ class nnActor:
         self.X = tf.placeholder(tf.float32, shape=[None, self.n_input], name='X')
         self.Y = tf.placeholder(tf.float32, shape=[None, self.n_output], name='Y')
 
+
         self.weights = {
             'h1': tf.Variable(tf.random_normal([self.n_input, self.n_hidden_1]), name='h1'),
             'h2': tf.Variable(tf.random_normal([self.n_hidden_1, self.n_hidden_2]), name='h2'),
@@ -29,6 +36,10 @@ class nnActor:
             'out': tf.Variable(tf.random_normal([self.n_output]), name='bout')
         }
 
+
+        # Create counter to keep track of steps (training iterations)
+        self.global_step = tf.Variable(0, name='global_step', trainable=False)
+
         # Construct model
         self.model = self.multilayer_perceptron(self.X)
 
@@ -39,17 +50,21 @@ class nnActor:
         self.loss_op = tf.reduce_sum(self.model)
 
         self.optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
-        self.train_op = self.optimizer.minimize(self.loss_op)
+        self.train_op = self.optimizer.minimize(self.loss_op, global_step=self.global_step)
 
         # Initializing the variables
         self.init_op = tf.global_variables_initializer()
+        self.sess.run(self.init_op)
 
         # Initializing ops to save and restore all variables
-        self.saver = tf.train.Saver()
+        self.saver = tf.train.Saver(max_to_keep=5)
         self.steps_per_save = 100
         self.steps_left_until_save = self.steps_per_save
 
-        self.sess = tf.Session()
+        # self.saver.restore(self.sess, tf.train.latest_checkpoint('./model/'))
+        # print(self.sess.run('h1:0'))
+        # print(self.sess.run('global_step:0'))
+
         self.summary_writer = tf.summary.FileWriter('actors/logs/%s' % logspath, self.sess.graph)
 
 
@@ -73,7 +88,7 @@ class nnActor:
 
     def train(self, x, y):
         sess = self.sess
-        sess.run(self.init_op)
+        # sess.run(self.init_op)
 
         # Run optimization op (backprop) and cost op (to get loss value)
         self.sess.run(self.train_op, feed_dict={self.X: x, self.Y: y})
@@ -82,15 +97,13 @@ class nnActor:
 
         if self.steps_left_until_save <= 0:
             self.steps_left_until_save = self.steps_per_save
-            save_path = self.saver.save(self.sess, 'model/v1', global_step=self.steps_per_save)
+            save_path = self.saver.save(self.sess, 'model/v1', global_step=self.global_step)
             print('saved model in path: %s' % save_path)
-
-        print('trained')
 
 
     def predict(self, x):
         sess = self.sess
-        sess.run(self.init_op)
+        # sess.run(self.init_op)
         cost = sess.run(self.loss_op, feed_dict={self.X: x})
         return cost
 

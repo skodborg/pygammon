@@ -5,6 +5,8 @@ import numpy as np
 import os
 from actors.randomActor import RandomActor
 import actors.nnActor
+import actors.loadedmodelActor
+import actors.interactiveActor
 
 BAR = 'bar'
 WHITE_END = 25
@@ -576,8 +578,8 @@ def train_ai(model=None, rounds=200):
 
   print('training %i rounds' % rounds)
   for i in range(rounds):
-    if i % 10 == 0:
-      print(i)
+  #   if i % 10 == 0:
+  #     print(i)
 
     curr_gamestate = initialize_game()
 
@@ -607,7 +609,7 @@ def train_ai(model=None, rounds=200):
       this_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
 
       if rnd.randint(1, 10) != 1:
-        # except for 80% of the choices; here, the best ai move is chosen
+        # except for 90% of the choices; here, the best ai move is chosen
         moves_results = []
         for move in valid_moves:
           gamestate_copy = copy.deepcopy(curr_gamestate)
@@ -775,15 +777,19 @@ def main():
   gamestate = initialize_game()
 
   # TODO: make new actor that prints gameboard and waits for user input
-  play()
+  # play()
 
-  # actor1 = RandomActor()
+  actor1 = RandomActor()
+  actor2 = actors.loadedmodelActor.loadedmodelActor()
+  actor3 = actors.interactiveActor.interactiveActor()
   # actor2 = RandomActor()
   # actor3 = actors.nnActor.nnActor('1')
 
-  benchmark_actors(actor1, actor3, rounds=100)
-  train_ai()
-  benchmark_actors(actor1, actor3, rounds=100)
+  # benchmark_actors(actor1, actor2, rounds=100)
+  # train_ai(rounds=10000000000)
+  # benchmark_actors(actor1, actor3, rounds=100)
+
+  actors_vs(actor2, actor3)
 
 
 
