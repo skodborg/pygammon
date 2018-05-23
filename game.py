@@ -1,5 +1,10 @@
 import random as rnd
 import copy
+import nn
+import numpy as np
+import os
+from actors.randomActor import RandomActor
+import actors.nnActor
 
 BAR = 'bar'
 WHITE_END = 25
@@ -30,7 +35,7 @@ def roll_dice(fixed_roll=None):
   return tuple([{eye: uses} for eye in eyes])
 
 def initialize_game(starting_player=None, init_roll=None, init_board=None):
-  global global_gamestate
+  global winner, global_gamestate
   # global board, player_in_turn, curr_roll, bar, global_gamestate
   # 24+2 board positions, 4x6 triangles and two positions where pieces are
   # considered taken off the board. These are 0 for black, and 25 for white
@@ -45,6 +50,8 @@ def initialize_game(starting_player=None, init_roll=None, init_board=None):
   board[17] =  3
   board[19] =  5
   board[24] = -2
+
+  winner = None
 
   # initializing the bar with zero of each piece in it (white is listed first)
   bar = [0, 0]
@@ -65,6 +72,7 @@ def initialize_game(starting_player=None, init_roll=None, init_board=None):
     board = init_board
 
   global_gamestate = (board, bar, player_in_turn, curr_roll)
+  return global_gamestate
 
   
 def initialize_testgame():
@@ -74,22 +82,22 @@ def initialize_testgame():
   initialize_game()
 
   board = [0 for _ in range(26)]
-  board[1]  =  2
-  board[6]  = -5
-  board[8]  = -3
-  board[12] =  5
-  board[13] = -5
-  board[17] =  3
-  board[19] =  5
-  board[24] = -2
+  board[1]  = -2
+  board[2]  = -8
+  board[8]  = -1
+  board[11] = -1
+  board[19] =  4
+  board[20] =  2
+  board[23] = -5
+  board[24] =  1
   player_in_turn = 'white'
-  curr_roll = ({2:1}, {6:1})
+  curr_roll = ({3:0}, {4:1})
   
   bar = [0, 0]
   # winner = 'white'
 
   global_gamestate = (board, bar, player_in_turn, curr_roll)
-  print(global_gamestate)
+  return global_gamestate
 
 def white_valid_moves(gamestate):
   board, bar, player_in_turn, curr_roll = gamestate
@@ -104,6 +112,7 @@ def white_valid_moves(gamestate):
   wht_locations = []
   for pos, pieces in enumerate(board):
     if pieces > 0: wht_locations.append(pos)
+
 
   # result list, filled with tuples of (from,to)-positions of valid moves
   wht_possible_moves = []
@@ -132,7 +141,8 @@ def white_valid_moves(gamestate):
       for roll in usable_rolls:
         eyes = list(roll.keys())[0]
         target = min(min(wht_locations) + eyes, 25)
-        wht_possible_moves.append((min(wht_locations), target))
+        if board[target] >= 0:
+          wht_possible_moves.append((min(wht_locations), target))
 
     # remove duplicates and return as list of tuples
     return list(set(wht_possible_moves))
@@ -197,7 +207,8 @@ def black_valid_moves(gamestate):
       for roll in usable_rolls:
         eyes = list(roll.keys())[0]
         target = max(max(blk_locations) - eyes, 0)
-        blk_possible_moves.append((max(blk_locations), target))
+        if board[target] <= 0:
+          blk_possible_moves.append((max(blk_locations), target))
 
     # remove duplicates and return as list of tuples
     return list(set(blk_possible_moves))
@@ -251,11 +262,19 @@ def move_piece(from_pos, to_pos, gamestate=global_gamestate):
   except ValueError:
     pass
 
+  if type(from_pos) is int and (from_pos > 24 or from_pos < 1):
+    report_error('Attempting to move piece from position beyond the board')
+    return None
+
+  if type(to_pos) is int and (to_pos > 25 or to_pos < 0):
+    report_error('Attempting to move piece to position beyond the board')
+    return None 
+
   if from_pos == 'bar':
     pieces = bar[0] if player_in_turn is 'white' else -bar[1]
   else:
     pieces = board[from_pos]
-  
+
   if pieces == 0:
     report_error("There are no pieces to move at position " + str(from_pos))
     return None
@@ -346,7 +365,6 @@ def move_piece(from_pos, to_pos, gamestate=global_gamestate):
 
   find_winner(gamestate)
 
-
   # end_current_turn()
   resulting_gamestate = (board, bar, player_in_turn, curr_roll)
   return resulting_gamestate
@@ -422,13 +440,12 @@ def find_winner(gamestate):
       white_has_won = False
       break
   if white_has_won:
-    winner = 'white'  
+    winner = 'white'
+  return winner
 
 def read_eval_loop(gamestate):
-  # global curr_roll
   _, _, _, curr_roll = gamestate
-  # TODO: SOMETHING'S FUCKED UP WITH THE GAMESTATE,
-  #       END_CURRENT_TURN UPDATES AND RETURNS A DIFFERENT OBJECT
+
   while True:
     cmd = input()
     if cmd == "q":
@@ -517,95 +534,257 @@ def nn_game_representation(gamestate):
                 neuron_val = (abs(this_pos) - 3) / 2
                 black_board_neurons[neuron_pos + 3] = neuron_val
     board_neurons = white_board_neurons + black_board_neurons
+    result = board_neurons + bar_neurons + p_removed_neurons + pl_turn_neurons
+    return np.array([result])
     
-    return board_neurons + bar_neurons + p_removed_neurons + pl_turn_neurons
-    
-def decide_move(gamestate):
-    board, bar, player_in_turn, curr_roll = gamestate
-    def eval_single_move(gamestate, move):
-        # perform move
-        from_pos, to_pos = move
-        post_move_gamestate = move_piece(from_pos, to_pos, gamestate)
-        print_game_state(post_move_gamestate)
-        # eval board afterwards (nn)
-        # return evaluation
-        pass
 
-    # should then, for each of the ~20 possible moves with the roll
-    # throw the resulting afterstate through the neural network to 
-    # estimate the value of a given board. Has to do this for ALL combinations
-    # of rolls I guess?
+def save_ai(w):
+  np.savetxt('w1.txt', w['w1'])
+  np.savetxt('w2.txt', w['w2'])
+  np.savetxt('b1.txt', w['b1'])
+  np.savetxt('b2.txt', w['b2'])
+  print('nn weights saved successfully')
 
 
-    def play_out_game(gamestate):
-      global winner
-      curr_gamestate = gamestate
-      while not winner:
-        valid_moves = []
-        if curr_gamestate[2] == 'white':
-          valid_moves = white_valid_moves(curr_gamestate)
-        else:
-          valid_moves = black_valid_moves(curr_gamestate)
+def load_ai():
+  w1 = np.loadtxt('w1.txt')
+  w2 = np.loadtxt('w2.txt')
+  w2 = np.array([[w] for w in w2])
+  b1 = np.loadtxt('b1.txt')
+  b1 = np.array([b1])
+  b2 = np.loadtxt('b2.txt')
+  b2 = np.array([[b2]])
+  
+  w = {'w1': w1, 'w2': w2, 'b1': b1, 'b2': b2,
+       'lambda': 0.001, 'alpha': 1.0, 'sample': 0}
 
+  # test that they are loaded correctly
+  # desired_w_shapes = nn.random_neural_net(198, 50, 1)
+  # assert w['w1'].shape == desired_w_shapes['w1'].shape
+  # assert w['w2'].shape == desired_w_shapes['w2'].shape
+  # assert w['b1'].shape == desired_w_shapes['b1'].shape
+  # assert w['b2'].shape == desired_w_shapes['b2'].shape
+  print('nn weights loaded')
+
+  return w
+
+
+def train_ai(model=None, rounds=200):
+  global winner
+
+  ai = actors.nnActor.nnActor()
+
+  print('training %i rounds' % rounds)
+  for i in range(rounds):
+    if i % 10 == 0:
+      print(i)
+
+    curr_gamestate = initialize_game()
+
+    data = []
+    labels = []
+
+    while not find_winner(curr_gamestate):
+      valid_moves = []
+      curr_player = None
+      if curr_gamestate[2] == 'white':
+        valid_moves = white_valid_moves(curr_gamestate)
+        curr_player = 'white'
+      else:
+        valid_moves = black_valid_moves(curr_gamestate)
+        curr_player = 'black'
+
+      if not valid_moves:
+        # print('NO VALID MOVES')
+        curr_gamestate = end_current_turn(curr_gamestate)
+        continue
+
+      nn_repr = nn_game_representation(curr_gamestate)
+
+      # perform random move
+
+      # explore 10% of times
+      this_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
+
+      if rnd.randint(1, 10) != 1:
+        # except for 80% of the choices; here, the best ai move is chosen
+        moves_results = []
+        for move in valid_moves:
+          gamestate_copy = copy.deepcopy(curr_gamestate)
+          from_pos = move[0]
+          to_pos = move[1]
+
+          gamestate_copy = move_piece(from_pos, to_pos, gamestate_copy)
+          moves_results.append((from_pos, to_pos, ai.predict(nn_game_representation(gamestate_copy))))
+        
+        best_move = (None, None, -1)
+        for move in moves_results:
+          if move[2] > best_move[2]:
+            best_move = move
+
+        this_move = best_move
+
+      # prepare data and labels for training
+      data.append(nn_game_representation(curr_gamestate))
+      labels.append(0)
+
+      # print('AI moving from %s to %s with value %s' % (str(best_move[0]), str(best_move[1]), str(best_move[2])))
+      curr_gamestate = move_piece(this_move[0], this_move[1], curr_gamestate)
+      
+    nn_repr = nn_game_representation(curr_gamestate)
+    data.append(nn_repr)
+    labels.append(1)
+
+    # prepare data formats
+    data = np.squeeze(data, axis=1)
+    labels = np.expand_dims(np.array(labels), axis=1)
+
+    # train
+    ai.train(data, np.array(labels))
+
+
+
+def play(interactive=True):
+  global global_gamestate
+  w = load_ai()
+
+  curr_gamestate = initialize_game()
+  # curr_gamestate = initialize_testgame()
+
+  while not find_winner(curr_gamestate):
+    if curr_gamestate[2] == 'white':
+      if interactive:
+        print_game_state(curr_gamestate)
+        cmd = input()
+        # print("\033c")  # clear screen, no scrollback
+        try:
+          if cmd == 'q':
+            return
+          
+          elif cmd == 'skip':
+            curr_gamestate = end_current_turn(curr_gamestate)
+            print_game_state(curr_gamestate)
+
+          else:
+            from_pos, to_pos = cmd.split(',')
+
+            if not from_pos in ['bar']:
+              int(from_pos)
+            if not to_pos in ['end']:
+              int(to_pos)
+            print(curr_gamestate[0])
+            new_gamestate = move_piece(from_pos, to_pos, curr_gamestate)
+            if new_gamestate:
+              curr_gamestate = new_gamestate
+                    
+        except ValueError:
+          report_error("Unknown command: %s" % cmd)
+      else:
+        # random move
+        valid_moves = white_valid_moves(curr_gamestate)
         if not valid_moves:
-          print('NO VALID MOVES')
+          # no valid moves
+          curr_gamestate = end_current_turn(curr_gamestate)
+          continue
+        random_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
+        print('RANDOM moving from %s to %s' % (str(random_move[0]), str(random_move[1])))
+        curr_gamestate = move_piece(random_move[0], random_move[1], curr_gamestate)
+    else:
+      # ai move
+      print('AI rolled %s' % str(curr_gamestate[3]))
+      moves_results = []
+      valid_moves = black_valid_moves(curr_gamestate)
+      if not valid_moves:
+        # no valid moves
+        curr_gamestate = end_current_turn(curr_gamestate)
+        continue
+      for move in valid_moves:
+        gamestate_copy = copy.deepcopy(curr_gamestate)
+        from_pos = move[0]
+        to_pos = move[1]
+
+        gamestate_copy = move_piece(from_pos, to_pos, gamestate_copy)
+        moves_results.append((from_pos, to_pos, nn.nn_predict(w, nn_game_representation(gamestate_copy))))
+      
+      best_move = (None, None, -1)
+      for move in moves_results:
+        if move[2] > best_move[2]:
+          best_move = move
+
+      print('AI moving from %s to %s with value %s' % (str(best_move[0]), str(best_move[1]), str(best_move[2])))
+      curr_gamestate = move_piece(best_move[0], best_move[1], curr_gamestate)
+
+  print('winner is %s' % find_winner(curr_gamestate))
+  print_game_state(curr_gamestate)
+  
+
+def actors_vs(whiteActor, blackActor):
+  curr_gamestate = initialize_game()
+  all_moves = []
+ 
+  while not find_winner(curr_gamestate):
+    if curr_gamestate[2] == 'white':
+        valid_moves = white_valid_moves(curr_gamestate)
+        if not valid_moves:
           curr_gamestate = end_current_turn(curr_gamestate)
           continue
 
-        to_positions = [x[1] for x in valid_moves]
-        from_positions = [x[0] for x in valid_moves]
-        if 25 in to_positions:
-          ok = True
-          for from_pos in from_positions:
-            if from_pos < 19:
-              ok = False
-          assert ok
-        if 0 in to_positions:
-          ok = True
-          for from_pos in from_positions:
-            if from_pos > 6:
-              ok = False
-          assert ok
+        white_move = whiteActor.act(curr_gamestate, valid_moves)
 
-        print('valid moves: %s' % str(valid_moves))
-      # perform random move
-        random_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
-        print('moving from %s to %s' % (str(random_move[0]), str(random_move[1])))
-        curr_gamestate = move_piece(random_move[0], random_move[1], curr_gamestate)
-        print_game_state(curr_gamestate)
+        # verify that white_move was indeed contained in valid_moves
+        assert white_move in valid_moves
 
-      print('a winner has been found in the following gamestate')
-      print_game_state(curr_gamestate)
+        # print('white move: ' + str(white_move))
+        curr_gamestate = move_piece(white_move[0], white_move[1], curr_gamestate)
+    else:
+        valid_moves = black_valid_moves(curr_gamestate)
+        if not valid_moves:
+          curr_gamestate = end_current_turn(curr_gamestate)
+          continue
 
+        black_move = blackActor.act(curr_gamestate, valid_moves)
 
-        # for move in valid_moves:
-        #   gamestate_copy = copy.deepcopy(global_gamestate)
-        #   from_pos = move[0]
-        #   to_pos = move[1]
+        # verify that black_move was indeed contained in valid_moves
+        assert black_move in valid_moves
 
-        #   curr_gamestate = move_piece(from_pos, to_pos, gamestate_copy)
-          # print_game_state(returned_gamestate)
-          # print(nn_game_representation(returned_gamestate))
+        # print('black move: ' + str(black_move))
+        curr_gamestate = move_piece(black_move[0], black_move[1], curr_gamestate)
 
-      # evaluate returned_gamestate
+  winner = find_winner(curr_gamestate)
+  return winner
 
-    # print('\n\n ORIGINAL GAMESTATE')
-    # print_game_state(global_gamestate)
-    # should return the moves corresponding to the most likely to win
-    
-    play_out_game(global_gamestate)
-
+def benchmark_actors(actor1, actor2, rounds=1000):
+  # TODO: shuffle actor1 and actor2 randomly
+  blk_wins = 0
+  wht_wins = 0
+  total = 0
+  for i in range(rounds):
+    if (i % 100 == 0):
+      print(i)
+    winner = actors_vs(actor1, actor2)
+    total += 1
+    if winner == 'white':
+      wht_wins += 1
+    else:
+      blk_wins += 1
+  print('white win percent: %f' % (wht_wins/total))
+  print('black win percent: %f' % (blk_wins/total))
 
 
 def main():
-  # initialize_game()
-  initialize_testgame()
+  gamestate = initialize_game()
 
-  print_game_state(global_gamestate)
-  # read_eval_loop(global_gamestate)
-  
+  # TODO: make new actor that prints gameboard and waits for user input
+  play()
 
-  decide_move(global_gamestate)
+  # actor1 = RandomActor()
+  # actor2 = RandomActor()
+  # actor3 = actors.nnActor.nnActor('1')
+
+  benchmark_actors(actor1, actor3, rounds=100)
+  train_ai()
+  benchmark_actors(actor1, actor3, rounds=100)
+
 
 
 if __name__ == '__main__':
