@@ -25,5 +25,8 @@ class interactiveActor:
                     print('valid moves are %s' % str(valid_moves))
                     continue
                 return (from_pos, to_pos)
+            except SystemExit:
+                sys.exit()
             except:
-                sys.exit(1)
+                print('something went wrong, try again or press \'q\' to exit')
+                continue
