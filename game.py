@@ -5,6 +5,9 @@ import numpy as np
 import os
 from actors.randomActor import RandomActor
 import actors.nnActor
+import actors.v2_nnActor
+import actors.v3_nnActor
+import actors.v4_nnActor
 import actors.loadedmodelActor
 import actors.interactiveActor
 
@@ -571,10 +574,14 @@ def load_ai():
   return w
 
 
-def train_ai(model=None, rounds=200):
+def train_ai(actor=None, rounds=200):
   global winner
 
-  ai = actors.nnActor.nnActor()
+  if actor:
+    ai = actor
+  else:
+    print('defaulting to nnActor')
+    ai = actors.nnActor.nnActor()
 
   print('training %i rounds' % rounds)
   for i in range(rounds):
@@ -606,25 +613,25 @@ def train_ai(model=None, rounds=200):
       # perform random move
 
       # explore 10% of times
-      this_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
+      # this_move = valid_moves[rnd.randint(0, len(valid_moves)-1)]
 
-      if rnd.randint(1, 10) != 1:
+      # if rnd.randint(1, 10) != 1:
         # except for 90% of the choices; here, the best ai move is chosen
-        moves_results = []
-        for move in valid_moves:
-          gamestate_copy = copy.deepcopy(curr_gamestate)
-          from_pos = move[0]
-          to_pos = move[1]
+      moves_results = []
+      for move in valid_moves:
+        gamestate_copy = copy.deepcopy(curr_gamestate)
+        from_pos = move[0]
+        to_pos = move[1]
 
-          gamestate_copy = move_piece(from_pos, to_pos, gamestate_copy)
-          moves_results.append((from_pos, to_pos, ai.predict(nn_game_representation(gamestate_copy))))
-        
-        best_move = (None, None, -1)
-        for move in moves_results:
-          if move[2] > best_move[2]:
-            best_move = move
+        gamestate_copy = move_piece(from_pos, to_pos, gamestate_copy)
+        moves_results.append((from_pos, to_pos, ai.predict(nn_game_representation(gamestate_copy))))
+      
+      best_move = (None, None, -1)
+      for move in moves_results:
+        if move[2] > best_move[2]:
+          best_move = move
 
-        this_move = best_move
+      this_move = best_move
 
       # prepare data and labels for training
       data.append(nn_game_representation(curr_gamestate))
@@ -761,8 +768,11 @@ def benchmark_actors(actor1, actor2, rounds=1000):
   wht_wins = 0
   total = 0
   for i in range(rounds):
-    if (i % 100 == 0):
+    if  i % 10 == 0 and i > 0:
+      print("\033c")  # clear screen, no scrollback
       print(i)
+      print('white win percent: %f' % (wht_wins/total))
+      print('black win percent: %f' % (blk_wins/total))
     winner = actors_vs(actor1, actor2)
     total += 1
     if winner == 'white':
@@ -774,22 +784,27 @@ def benchmark_actors(actor1, actor2, rounds=1000):
 
 
 def main():
-  gamestate = initialize_game()
+  # gamestate = initialize_game()
 
   # TODO: make new actor that prints gameboard and waits for user input
   # play()
 
   actor1 = RandomActor()
-  actor2 = actors.loadedmodelActor.loadedmodelActor()
-  actor3 = actors.interactiveActor.interactiveActor()
+  # actor3 = actors.loadedmodelActor.loadedmodelActor(printStuff=True)
+  # player = actors.interactiveActor.interactiveActor()
+  # actor5 = actors.v3_nnActor.v3_nnActor()
+  actor4 = actors.v4_nnActor.v4_nnActor()
+  # actor4 = actors.v4_nnActor.v4_nnActor(printStuff=True)
+  # actor4.restore()
+  actor4.train(rounds=50000)
+
   # actor2 = RandomActor()
   # actor3 = actors.nnActor.nnActor('1')
 
-  # benchmark_actors(actor1, actor2, rounds=100)
-  # train_ai(rounds=10000000000)
-  # benchmark_actors(actor1, actor3, rounds=100)
-
-  actors_vs(actor2, actor3)
+  # train_ai(actor5, rounds=190000)
+  # actor2 = actors.loadedmodelActor.loadedmodelActor()
+  benchmark_actors(actor1, actor4, rounds=1000)
+  # actors_vs(player, actor4)
 
 
 
