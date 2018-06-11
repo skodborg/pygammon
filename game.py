@@ -5,8 +5,6 @@ import numpy as np
 import os
 from actors.randomActor import RandomActor
 import actors.nnActor
-import actors.v2_nnActor
-import actors.v3_nnActor
 import actors.v4_nnActor
 import actors.loadedmodelActor
 import actors.interactiveActor
@@ -795,8 +793,8 @@ def main():
   # actor5 = actors.v3_nnActor.v3_nnActor()
   actor4 = actors.v4_nnActor.v4_nnActor()
   # actor4 = actors.v4_nnActor.v4_nnActor(printStuff=True)
-  # actor4.restore()
-  actor4.train(rounds=50000)
+  actor4.restore()
+  # actor4.train(rounds=100000)
 
   # actor2 = RandomActor()
   # actor3 = actors.nnActor.nnActor('1')

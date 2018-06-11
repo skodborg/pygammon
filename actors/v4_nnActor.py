@@ -2,7 +2,6 @@ import tensorflow as tf
 import copy
 import game
 import time
-import matplotlib.pyplot as plt
 
 VERSION = 'v4'
 
