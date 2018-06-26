@@ -7,12 +7,11 @@ class RandomWalk:
 		self.MOVE_LEFT = 0
 		self.MOVE_RIGHT = 1
 
-		self.NO_OF_STATES = 30
+		self.NO_OF_STATES = 7
 		self.LAST_STATE = self.NO_OF_STATES - 1
 		self.FIRST_STATE = 0
 		# states = [T_0, A, B, C, D, E, T_1]
 		self.state = math.floor(self.NO_OF_STATES / 2)
-		# self.state = self.LAST_STATE - 1
 		if state_seed:
 			self.state = state_seed
 		self.moves = 0
@@ -32,7 +31,7 @@ class RandomWalk:
 	def done(self):
 		reward = 1 if self.state == self.LAST_STATE else 0
 		done = True if self.state in [self.FIRST_STATE, self.LAST_STATE] else False
-		return done, reward, self.state, self.moves
+		return done, [[reward]], self.state, self.moves
 
 	def getState(self):
 		return self.state
