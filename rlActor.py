@@ -5,6 +5,7 @@ import time
 import benchmark
 import randomWalk as rw
 import random as rnd
+import numpy as np
 
 class rlActor:
     def __init__(self, logspath='1', printStuff=False):
@@ -55,7 +56,7 @@ class rlActor:
     def train(self, rounds=100000):
         alpha = 0.5  # learning rate for w1
         gamma = 0.7  # 0.7
-        explore_rate = 0.5
+        explore_rate = 1.0
 
         reward = tf.placeholder(tf.float32, shape=[1,1], name='reward')
         sign = tf.placeholder(tf.float32, shape=[1], name='sign')
@@ -73,98 +74,117 @@ class rlActor:
         self.summary_writer = tf.summary.FileWriter('logs/%s' % VERSION, self.sess.graph)
         # self.printStuff = True
 
+        batch_size = 35
+
         for i in range(rounds):
             print('\n\nround %i' % i)
             self.sess.run(self.incr_global_step_op)
 
-            walk = rw.RandomWalk()
-            done, _, _, _ = walk.done()
-            j = 0
+            batch = []
 
-            if i % 10 == 0 and i > 0 and explore_rate > 0.0:
+            if i % 5 == 0 and i > 0 and explore_rate > 0.1:
                 explore_rate -= 0.1
 
-            if explore_rate <= 0.01:
+            if explore_rate < 0.1:
                 self.printStuff = True
 
-            while not done:
-                j += 1
-                if j == 100:
-                    break
-                # y_t = V(s_t) : the value estimate of current state
-                nn_repr = walk.nn_state_repr()
-                y_t = self.sess.run(self.V, feed_dict={self.X: nn_repr})
+            for j in range(35):
+                # gather all moves, samples one per round and adds it to batch
+                moves = []
+                walk = rw.RandomWalk()
+                done, _, _, _ = walk.done()
 
-                # evaluate all possible moves by simulating and estimating them using V
-                moves_results = []
-                curr_state = walk.getState()
-                for move in walk.move_space():
-                    walk_copy = rw.RandomWalk(curr_state)
-                    walk_copy.move(move)
-                    nn_repr_copy = walk_copy.nn_state_repr()
-                    y_tplus1 = self.sess.run(self.V, feed_dict={self.X: nn_repr_copy})
+                while not done:
+                    j += 1
+                    if j == 100:
+                        break
+                    # y_t = V(s_t) : the value estimate of current state
+                    nn_repr = walk.nn_state_repr()
+                    nn_repr = nn_repr.reshape(1,7)
+                    y_t = self.sess.run(self.V, feed_dict={self.X: nn_repr})
+
+                    # evaluate all possible moves by simulating and estimating them using V
+                    moves_results = []
+                    curr_state = walk.getState()
+                    for move in walk.move_space():
+                        walk_copy = rw.RandomWalk(curr_state)
+                        walk_copy.move(move)
+                        nn_repr_copy = walk_copy.nn_state_repr().reshape(1,7)
+                        y_tplus1 = self.sess.run(self.V, feed_dict={self.X: nn_repr_copy})
+                        if self.printStuff:
+                            print('considering future board %s getting estimate %f' % (str(nn_repr_copy), y_tplus1))
+                        moves_results.append((move, y_tplus1))
+
+                    # perform best move (acc. to V on all possible moves resulting states)
+                    # y_tplus1 = V(s_t+1) : the value estimate of next state
+                    best_move_tup = max(moves_results, key=lambda x: x[1])
+                    best_move = best_move_tup[0]
                     if self.printStuff:
-                        print('considering future board %s getting estimate %f' % (str(nn_repr_copy), y_tplus1))
-                    moves_results.append((move, y_tplus1))
+                        print('chose best_move %s with estimate %s' % (str(best_move), str(best_move_tup[1])))
+                    if rnd.random() < explore_rate:
+                        # ensure exploration 10% of the time
+                        best_move = rnd.choice(moves_results)[0]
+                        if self.printStuff:
+                            print('EXPLORING: chose %s' % str(best_move))
+                    walk.move(best_move)
+                    done, reward, state, _ = walk.done()
+                    new_nn_repr = walk.nn_state_repr().reshape(1,7)
+                    y_tplus1 = self.sess.run(self.V, feed_dict={self.X: new_nn_repr})
+                    moves.append((nn_repr, y_t, best_move, reward, new_nn_repr, y_tplus1))
+                    # TODO: consider if rewards above 1 makes sense? if this is sufficient to eliminate
+                    if reward == [[1]]:
+                        y_tplus1 = [[0.0]]
+                    # assert y_tplus1 == best_move_tup[1]
+                    cost_sign = self.sess.run(cost, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})[0]
+                    cost_sign = [-1] if cost_sign[0] < 0 else [1]
 
-                # perform best move (acc. to V on all possible moves resulting states)
-                # y_tplus1 = V(s_t+1) : the value estimate of next state
-                best_move_tup = max(moves_results, key=lambda x: x[1])
-                best_move = best_move_tup[0]
+                    if self.printStuff:
+                        print('reward: %s' % str(reward))
+                        print('BEFORE UPDATE')
+                        weights1, weights2, bias1, bias2 = self.sess.run([self.w1, self.w2, self.b1, self.b2])
+                        # print('weights1', weights1)
+                        # print('weights2', weights2)
+
+                        print('V(s_t): %s' % str(y_t))
+                        print('V(s_t+1): %s' % str(y_tplus1))
+                        print('target: %s' % str(self.sess.run(target, feed_dict={'reward:0': reward, self.Y: y_tplus1})))
+                        print('cost: %s' % str(self.sess.run(cost, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})))
+                        # print('gradients: %s' % str(self.sess.run(gradients, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})))
+
+                    # GRADIENT DESCENT
+                    # w2 before w1 as we need to propagate w2 gradient changes to w1
+                    # self.sess.run([w2_update_op, b2_update_op], feed_dict={self.X: nn_repr, self.Y: y_tplus1, 'reward:0': reward, 'sign:0': cost_sign})
+                    # self.sess.run([w1_update_op, b1_update_op], feed_dict={self.X: nn_repr, self.Y: y_tplus1, 'reward:0': reward, 'sign:0': cost_sign})
+
+                    if self.printStuff:
+                        weights1, weights2, bias1, bias2 = self.sess.run([self.w1, self.w2, self.b1, self.b2])
+                        print('AFTER UPDATE')
+                        # print('weights1', weights1)
+                        # print('weights2', weights2)
+                        # print('bias1', bias1)
+                        # print('bias2', bias2)
+                        print('new V(s_t) post update: %s' % str(self.sess.run(self.V, feed_dict={self.X: nn_repr})))
+                        print('target: %s' % str(self.sess.run(target, feed_dict={'reward:0': reward, self.Y: y_tplus1})))
+                        print('cost: %s' % str(self.sess.run(cost, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})))
+                        input()
+
+                _, reward, _, _ = walk.done()
+                moves.append((new_nn_repr, None, best_move, reward, None, y_tplus1))
+                print(str(walk.moves) + ' ' + str(reward) + ': ' + str(reward[0][0] / j) + '  \t explore_rate: %f' % explore_rate)
                 if self.printStuff:
-                    print('chose best_move %s with estimate %s' % (str(best_move), str(best_move_tup[1])))
-                if rnd.random() < explore_rate:
-                    # ensure exploration 10% of the time
-                    best_move = rnd.choice(moves_results)[0]
-                    if self.printStuff:
-                        print('EXPLORING: chose %s' % str(best_move))
-                walk.move(best_move)
-                done, reward, state, _ = walk.done()
-                new_nn_repr = walk.nn_state_repr()
-                y_tplus1 = self.sess.run(self.V, feed_dict={self.X: new_nn_repr})
-                # TODO: consider if rewards above 1 makes sense? if this is sufficient to eliminate
-                if reward == [[1]]:
-                    y_tplus1 = [[0.0]]
-                # assert y_tplus1 == best_move_tup[1]
+                    input()
+
+                batch.append(rnd.choice(moves))
+                # print(len(batch))
+
+            for b in batch:
+                nn_repr, y_t, best_move, reward, new_nn_repr, y_tplus1 = b
                 cost_sign = self.sess.run(cost, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})[0]
                 cost_sign = [-1] if cost_sign[0] < 0 else [1]
-
-                if self.printStuff:
-                    print('reward: %s' % str(reward))
-                    print('BEFORE UPDATE')
-                    weights1, weights2, bias1, bias2 = self.sess.run([self.w1, self.w2, self.b1, self.b2])
-                    # print('weights1', weights1)
-                    # print('weights2', weights2)
-
-                    print('V(s_t): %s' % str(y_t))
-                    print('V(s_t+1): %s' % str(y_tplus1))
-                    print('target: %s' % str(self.sess.run(target, feed_dict={'reward:0': reward, self.Y: y_tplus1})))
-                    print('cost: %s' % str(self.sess.run(cost, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})))
-                    # print('gradients: %s' % str(self.sess.run(gradients, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})))
-
                 # GRADIENT DESCENT
                 # w2 before w1 as we need to propagate w2 gradient changes to w1
                 self.sess.run([w2_update_op, b2_update_op], feed_dict={self.X: nn_repr, self.Y: y_tplus1, 'reward:0': reward, 'sign:0': cost_sign})
                 self.sess.run([w1_update_op, b1_update_op], feed_dict={self.X: nn_repr, self.Y: y_tplus1, 'reward:0': reward, 'sign:0': cost_sign})
-
-                if self.printStuff:
-                    weights1, weights2, bias1, bias2 = self.sess.run([self.w1, self.w2, self.b1, self.b2])
-                    print('AFTER UPDATE')
-                    # print('weights1', weights1)
-                    # print('weights2', weights2)
-                    # print('bias1', bias1)
-                    # print('bias2', bias2)
-                    print('new V(s_t) post update: %s' % str(self.sess.run(self.V, feed_dict={self.X: nn_repr})))
-                    print('target: %s' % str(self.sess.run(target, feed_dict={'reward:0': reward, self.Y: y_tplus1})))
-                    print('cost: %s' % str(self.sess.run(cost, feed_dict={'reward:0': reward, self.Y: y_tplus1, self.X: nn_repr})))
-                    input()
-
-            _, reward, _, _ = walk.done()
-            print(str(walk.moves) + ' ' + str(reward) + ': ' + str(reward[0][0] / j) + '  \t explore_rate: %f' % explore_rate)
-            if self.printStuff:
-                input()
-
-            # tf.reset_default_graph()
 
 
     # Create model

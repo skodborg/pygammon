@@ -1,3 +1,4 @@
+import numpy as np
 import random as rnd
 import math
 
@@ -55,9 +56,20 @@ class RandomWalk:
 		return self.done()
 
 	def nn_state_repr(self):
-		state_repr = [0 for _ in range(self.NO_OF_STATES)]
-		state_repr[self.state] = 1
-		return [state_repr]
+		state_repr = [0.0 for _ in range(self.NO_OF_STATES)]
+		state_repr[self.state] = 1.0
+		return np.array(state_repr)
+
+	def render(self):
+		print(self.nn_state_repr())
+
+	def reset(self):
+		self.__init__()
+		return self.nn_state_repr()
+
+	def step(self, action):
+		done, reward, state, moves = self.move(action)
+		return self.nn_state_repr()[0], reward[0][0], done, {}
 
 
 def main():
